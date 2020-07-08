@@ -1,53 +1,27 @@
 package disertatie.server.controllers;
 
-import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeFlow;
-import com.google.api.client.googleapis.auth.oauth2.GoogleCredential;
-import com.google.api.client.googleapis.auth.oauth2.GoogleTokenResponse;
 import com.google.api.client.http.HttpRequest;
 import com.google.api.client.http.HttpRequestInitializer;
-import com.google.api.client.http.HttpTransport;
 import com.google.api.client.http.javanet.NetHttpTransport;
-import com.google.api.client.json.JsonFactory;
 import com.google.api.client.json.jackson2.JacksonFactory;
 import com.google.api.services.customsearch.Customsearch;
 import com.google.api.services.customsearch.model.Result;
 import com.google.api.services.customsearch.model.Search;
 
+import disertatie.server.domain.vo.DuckDuckLink;
+import disertatie.server.domain.vo.GoogleSearchLink;
 import disertatie.server.utils.Levenshtein;
+import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 import org.json.simple.parser.JSONParser;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
-
-import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeFlow;
-import com.google.api.client.googleapis.auth.oauth2.GoogleCredential;
-import com.google.api.client.googleapis.auth.oauth2.GoogleTokenResponse;
-import com.google.api.client.http.HttpTransport;
-import com.google.api.client.http.javanet.NetHttpTransport;
-import com.google.api.client.json.JsonFactory;
-import com.google.api.client.json.jackson2.JacksonFactory;
+import org.springframework.web.bind.annotation.*;
 
 
-
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLConnection;
-import java.util.Arrays;
-import java.util.ArrayList;
-import java.util.List;
-import java.io.IOException;
-import java.util.Scanner;
+import java.util.*;
 
-import org.jsoup.Jsoup;
-import org.jsoup.nodes.Document;
-import org.jsoup.nodes.Element;
-import org.jsoup.select.Elements;
-
+@CrossOrigin("*")
 @RestController
 @RequestMapping("/")
 public class BookRestController {
@@ -57,21 +31,46 @@ public class BookRestController {
     private final static String DUCKDUCKGO_SEARCH_URL = "https://html.duckduckgo.com/html/?q=";
 
     @GetMapping(path = "/search/{keywords}")
-    public Object search(@PathVariable String keywords) {
+    public HashMap<String,Object> search(@PathVariable String keywords) {
         String queryWords[] = keywords.split(" ");
+        List<GoogleSearchLink> googleResults = new ArrayList<>();
+        List<DuckDuckLink> duckduckResults = new ArrayList<>();
+        processGooglePrecission(keywords, queryWords, googleResults);
+        processDuckDuckGoPrecission(keywords, queryWords, duckduckResults);
+        HashMap<String, Object> fuzzyResults = new HashMap<String, Object>();
+        fuzzyResults.put("googleResults",googleResults);
+        fuzzyResults.put("duckResults",duckduckResults);
+        int x = 0;
+        return fuzzyResults;
+    }
 
-        for(String word: queryWords){
-            System.out.println(word);
+    private void processDuckDuckGoPrecission(String keywords, String[] queryWords, List<DuckDuckLink> duckduckResults) {
+        List<Integer> distances = new ArrayList<>();
+        List<Double> inputs1 = new ArrayList<>();
+        List<Double> inputs2 = new ArrayList<>();
+
+        List<String> filteredTexts= new ArrayList<>();
+        List<String> filteredURLS = new ArrayList<>();
+        List<String[]> items = new ArrayList<>();
+
+        searchOnDuckDuckGo(filteredTexts, filteredURLS, keywords, queryWords);
+        for(String it: filteredTexts){
+            items.add(it.split(" "));
         }
-
-        processGooglePrecission(keywords, queryWords);
-
-
-        return searchOnDuckDuckGo(keywords);
-        //return searchOnGoogle(keywords);
+        calculateAllInputs(items, queryWords, distances, inputs1, inputs2);
+        recalculateInput2(inputs2, keywords.length());
+        for(int i = 0; i < filteredTexts.size();i++){
+            String currentText = filteredTexts.get(i);
+            String currentURL = filteredURLS.get(i);
+            duckduckResults.add(new DuckDuckLink(currentText,currentURL,0.0));
+        }
+        //TODO:
+        // loop the results from matlab and set the fuzzy relevance for each duckduck link
+       // int x = 0;
 
     }
-    private void processGooglePrecission(String keywords, String[] queryWords) {
+    // calculam levenshtein pentru titlu si pentru summary-ul fiecarui website
+    private void processGooglePrecission(String keywords, String[] queryWords, List<GoogleSearchLink> googleResults) {
         List<Result> chromeSearchResults;
         List<String[]> chromeResTitles = new ArrayList<>();
         List<String[]> chromeResSnippets = new ArrayList<>();
@@ -89,15 +88,21 @@ public class BookRestController {
         chromeSearchResults = searchOnGoogle(keywords);
 
         for (Result res : chromeSearchResults) {
-            chromeResTitles.add(res.getTitle().split(" "));
-            chromeResSnippets.add(res.getSnippet().split(" "));
+            String title = res.getTitle();
+            String snippet = res.getSnippet();
+            String url = res.getFormattedUrl();
+            googleResults.add(new GoogleSearchLink(title,snippet,url,0.0));
+            chromeResTitles.add(title.split(" "));
+            chromeResSnippets.add(snippet.split(" "));
         }
         calculateAllInputs(chromeResTitles, queryWords, distancesForTitles, inputs1ForTitles, inputs2ForTitles);
         calculateAllInputs(chromeResSnippets, queryWords, distancesForSnippets, inputs1ForSnippets, inputs2ForSnippets);
         addTheValuesFromTitleAndSnippets(distancesForTitles, inputs1ForTitles, inputs2ForTitles, distancesForSnippets,
                 inputs1ForSnippets, inputs2ForSnippets, finalDistances, finalInputs1, finalInputs2);
         recalculateInput2(finalInputs2, keywords.length());
-        int x = 0;
+        //TODO:
+        // loop the results from matlab and set the fuzzy relevance for each google result
+
     }
 
     private void addTheValuesFromTitleAndSnippets(List<Integer> distancesTitle,
@@ -149,11 +154,11 @@ public class BookRestController {
             }
         }
     }
-        //System.out.println(Levenshtein.distance(keywords, "Hello"));
     private double calculateInput1(int ed, String content){
         double itemLength = content.length();
         return (100 * (1 - ((double) ed / itemLength)));
     }
+    // functie pentru a adauga 10% la valoarea curenta pentru a compensa posibile erori
     private void recalculateInput2(List<Double> finalInput2, int contentLength){
         for(int i = 0; i < finalInput2.size();i++){
             double currentInput2 = finalInput2.get(i);
@@ -164,7 +169,6 @@ public class BookRestController {
         double temp = 0;
         double finalInput = input2;
         if(input2 > 0) {
-            // crestem cu 10% pentru a compensa pentru posibile erori
             temp = 100 * finalInput * 0.1;
         }
         finalInput= 100 * (finalInput/ (double)contentLength);
@@ -176,7 +180,6 @@ public class BookRestController {
         }
         return finalInput;
     }
-
 
     private List<Result> searchOnGoogle(String keywords) {
         Customsearch customsearch = null;
@@ -208,22 +211,44 @@ public class BookRestController {
         }
         return resultList;
     }
-    private JSONObject searchOnDuckDuckGo(String keywords){
+    private void searchOnDuckDuckGo(List<String> filteredTexts, List<String> filteredURLS, String keywords,
+                                    String[] queryWords){
         JSONObject json = null;
+        JSONArray relatedTopics = null;
         try {
             JSONParser parser = new JSONParser();
             URL url = new URL("http://api.duckduckgo.com/?format=json&pretty=1&t=ClientName&q="+keywords);
             URLConnection conn = url.openConnection();
+            // este necesara specificarea User-Agent-ului drept request property si in URL pentru a functiona
             conn.setRequestProperty("User-Agent", "ClientName");
-
             Scanner scn = new Scanner(conn.getInputStream()).useDelimiter("\\A");
             String buffer = scn.hasNext() ? scn.next() : "";
-//           System.out.println(json.toString());
             json = (JSONObject)parser.parse(buffer);
+
+            relatedTopics = (JSONArray)json.get("RelatedTopics");
+            for(int i = 0; i < relatedTopics.size();i++){
+                JSONObject obj = (JSONObject) relatedTopics.get(i);
+                if(obj.containsKey("Topics")){
+                    JSONArray topicsArray = (JSONArray)obj.get("Topics");
+                    for(int j = 0; j<topicsArray.size(); j++){
+                        JSONObject crtTopic = (JSONObject)topicsArray.get(j);
+                        String crtText = (String)crtTopic.get("Text");
+                        String crtURL = (String)crtTopic.get("FirstURL");
+                        filteredTexts.add(crtText);
+                        filteredURLS.add(crtURL);
+                    }
+                }
+                if(obj.containsKey("Text")){
+                    String crtText = (String)obj.get("Text");
+                    String crtURL = (String)obj.get("FirstURL");
+                    filteredTexts.add(crtText);
+                    filteredURLS.add(crtURL);
+                }
+            }
         } catch (Exception e) {
             e.printStackTrace();
         }
-        return json;
+        int x = 0;
         }
     }
 
