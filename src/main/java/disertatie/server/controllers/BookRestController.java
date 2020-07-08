@@ -7,19 +7,22 @@ import com.google.api.client.json.jackson2.JacksonFactory;
 import com.google.api.services.customsearch.Customsearch;
 import com.google.api.services.customsearch.model.Result;
 import com.google.api.services.customsearch.model.Search;
-
 import disertatie.server.domain.vo.DuckDuckLink;
 import disertatie.server.domain.vo.GoogleSearchLink;
 import disertatie.server.utils.Levenshtein;
+import disertatie.server.utils.MatlabUtils;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 import org.json.simple.parser.JSONParser;
 import org.springframework.web.bind.annotation.*;
 
-
 import java.net.URL;
 import java.net.URLConnection;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Scanner;
+import java.util.concurrent.ExecutionException;
 
 @CrossOrigin("*")
 @RestController
@@ -29,9 +32,11 @@ public class BookRestController {
     private String GOOGLE_API_KEY = "AIzaSyCSI36qVUKUfDaV2DjSUSUDpdzrIlGxIfo";
     private String SEARCH_ENGINE_ID = "015970870679697835201:iskqgfupniq";
     private final static String DUCKDUCKGO_SEARCH_URL = "https://html.duckduckgo.com/html/?q=";
+    MatlabUtils matlabEngine = new MatlabUtils();
 
     @GetMapping(path = "/search/{keywords}")
-    public HashMap<String,Object> search(@PathVariable String keywords) {
+    public HashMap<String,Object> search(@PathVariable String keywords) throws ExecutionException, InterruptedException {
+        matlabEngine.initializeMatlab();
         String queryWords[] = keywords.split(" ");
         List<GoogleSearchLink> googleResults = new ArrayList<>();
         List<DuckDuckLink> duckduckResults = new ArrayList<>();
@@ -41,10 +46,12 @@ public class BookRestController {
         fuzzyResults.put("googleResults",googleResults);
         fuzzyResults.put("duckResults",duckduckResults);
         int x = 0;
+        // MatlabUtils.calculateFuzzyRelevance();
         return fuzzyResults;
     }
 
-    private void processDuckDuckGoPrecission(String keywords, String[] queryWords, List<DuckDuckLink> duckduckResults) {
+    private void processDuckDuckGoPrecission(String keywords, String[] queryWords, List<DuckDuckLink> duckduckResults)
+            throws InterruptedException, ExecutionException {
         List<Integer> distances = new ArrayList<>();
         List<Double> inputs1 = new ArrayList<>();
         List<Double> inputs2 = new ArrayList<>();
@@ -59,18 +66,22 @@ public class BookRestController {
         }
         calculateAllInputs(items, queryWords, distances, inputs1, inputs2);
         recalculateInput2(inputs2, keywords.length());
+        List<Double> relevance = matlabEngine.calculateFuzzyRelevance(inputs1,inputs2);
         for(int i = 0; i < filteredTexts.size();i++){
             String currentText = filteredTexts.get(i);
             String currentURL = filteredURLS.get(i);
-            duckduckResults.add(new DuckDuckLink(currentText,currentURL,0.0));
+            Double currentRelevance = relevance.get(i);
+            duckduckResults.add(new DuckDuckLink(currentText,currentURL,currentRelevance));
         }
+       
         //TODO:
         // loop the results from matlab and set the fuzzy relevance for each duckduck link
        // int x = 0;
 
     }
     // calculam levenshtein pentru titlu si pentru summary-ul fiecarui website
-    private void processGooglePrecission(String keywords, String[] queryWords, List<GoogleSearchLink> googleResults) {
+    private void processGooglePrecission(String keywords, String[] queryWords, List<GoogleSearchLink> googleResults)
+            throws InterruptedException, ExecutionException {
         List<Result> chromeSearchResults;
         List<String[]> chromeResTitles = new ArrayList<>();
         List<String[]> chromeResSnippets = new ArrayList<>();
@@ -100,6 +111,12 @@ public class BookRestController {
         addTheValuesFromTitleAndSnippets(distancesForTitles, inputs1ForTitles, inputs2ForTitles, distancesForSnippets,
                 inputs1ForSnippets, inputs2ForSnippets, finalDistances, finalInputs1, finalInputs2);
         recalculateInput2(finalInputs2, keywords.length());
+        List<Double> relevance = (ArrayList) matlabEngine.calculateFuzzyRelevance(finalInputs1, finalInputs2);
+        for(int i = 0; i<googleResults.size();i++){
+            GoogleSearchLink crtLink = googleResults.get(i);
+            Double crtRelevance = relevance.get(i);
+            crtLink.setFuzzyRelevance(crtRelevance);
+        }
         //TODO:
         // loop the results from matlab and set the fuzzy relevance for each google result
 
@@ -217,7 +234,7 @@ public class BookRestController {
         JSONArray relatedTopics = null;
         try {
             JSONParser parser = new JSONParser();
-            URL url = new URL("http://api.duckduckgo.com/?format=json&pretty=1&t=ClientName&q="+keywords);
+            URL url = new URL("http://api.duckduckgo.com/?format=json&pretty=1&t=ClientName&q="+String.join("+",keywords.split(" ")));
             URLConnection conn = url.openConnection();
             // este necesara specificarea User-Agent-ului drept request property si in URL pentru a functiona
             conn.setRequestProperty("User-Agent", "ClientName");
