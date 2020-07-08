@@ -9,7 +9,15 @@ import java.util.concurrent.Future;
 
 public class MatlabUtils {
     private static MatlabEngine eng = null;
- 
+    public MatlabUtils() {
+                try{
+                    this.initializeMatlab();
+                }
+                catch(Exception e){
+                    System.out.println(e);
+                }
+        
+    }
 public void initializeMatlab()
         throws IllegalArgumentException, IllegalStateException, InterruptedException, MatlabExecutionException,
         MatlabSyntaxException, ExecutionException {

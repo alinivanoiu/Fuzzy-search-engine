@@ -32,11 +32,12 @@ public class BookRestController {
     private String GOOGLE_API_KEY = "AIzaSyCSI36qVUKUfDaV2DjSUSUDpdzrIlGxIfo";
     private String SEARCH_ENGINE_ID = "015970870679697835201:iskqgfupniq";
     private final static String DUCKDUCKGO_SEARCH_URL = "https://html.duckduckgo.com/html/?q=";
+    // pornitul aplicatiei dureaza mai mult din cauza pornirii matlab-ului,
+    // dar asta ofera avantaje pe partea vitezei de procesare a rezultatelor
     MatlabUtils matlabEngine = new MatlabUtils();
-
+   
     @GetMapping(path = "/search/{keywords}")
     public HashMap<String,Object> search(@PathVariable String keywords) throws ExecutionException, InterruptedException {
-        matlabEngine.initializeMatlab();
         String queryWords[] = keywords.split(" ");
         List<GoogleSearchLink> googleResults = new ArrayList<>();
         List<DuckDuckLink> duckduckResults = new ArrayList<>();
