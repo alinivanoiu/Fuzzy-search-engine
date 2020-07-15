@@ -1,6 +1,7 @@
 package disertatie.server.utils;
 
 public class Levenshtein {
+    // funcția pentru calculul edit distance-ului
     public static int distance(String a, String b) {
         a = a.toLowerCase();
         b = b.toLowerCase();
